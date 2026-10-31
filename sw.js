@@ -28,6 +28,7 @@ const SHELL_FILES = [
   'banco_de_dados/prescricoes.js',
   'banco_de_dados/protocolos_dentistica.js',
   'banco_de_dados/protocolos_endodontia.js',
+  'banco_de_dados/protocolos_periodontia',
   'reabilitacao-oral/index.html',
   'reabilitacao-oral/dados.js',
   'reabilitacao-oral/aplicativo.js',
