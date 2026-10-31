@@ -355,7 +355,11 @@
                                     class="hidden bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200 text-gray-700 w-10 h-10 p-0 rounded-lg transition-colors items-center justify-center active:scale-95"
                                     aria-label="Voltar à página anterior"
                                     title="Voltar">
-                                <i data-lucide="arrow-left" class="w-5 h-5" aria-hidden="true"></i>
+                            <span class="flex w-full h-full items-center justify-center">
+                                <i data-lucide="arrow-left"
+                                   class="w-5 h-5"
+                                   aria-hidden="true"></i>
+                            </span>
                             </button>
                         </div>
                     </div>
