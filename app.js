@@ -84,6 +84,167 @@
         refreshIcons();
     }
 
+    // Navegação rápida: reaproveita o documento, cabeçalho, rodapé e bibliotecas.
+    // Restrita às páginas principais do Guia Clínico. Leitor PDF e Reabilitação
+    // Oral continuam como páginas independentes, com seus próprios controles.
+    const ROUTE_FILES = Object.freeze({
+        'index.html': 'home',
+        'dentistica.html': 'dentistica',
+        'periodontia.html': 'periodontia',
+        'endodontia.html': 'endodontia',
+        'cirurgia.html': 'cirurgia',
+        'prescricoes.html': 'prescricoes'
+    });
+    const SITE_BASE = new URL('./', document.currentScript?.src || location.href);
+    const pagePromises = new Map();
+    const scriptPromises = new Map();
+    const storedScroll = new Map();
+    let navigationVersion = 0;
+    let didWarm = false;
+
+    // Inclui arquivos já carregados pelo HTML atual, para não executá-los duas vezes.
+    document.querySelectorAll('script[src]').forEach((script) => {
+        scriptPromises.set(new URL(script.src, location.href).href, Promise.resolve());
+    });
+
+    function routeOf(value) {
+        const url = new URL(value, location.href);
+        if (url.origin !== SITE_BASE.origin || !url.pathname.startsWith(SITE_BASE.pathname)) return null;
+        const file = url.pathname.slice(SITE_BASE.pathname.length) || 'index.html';
+        return Object.prototype.hasOwnProperty.call(ROUTE_FILES, file) ? {
+            url, file, page: ROUTE_FILES[file]
+        } : null;
+    }
+
+    function getRouteDocument(file) {
+        if (!pagePromises.has(file)) {
+            const url = new URL(file, SITE_BASE);
+            const loading = fetch(url.href).then((response) => {
+                if (!response.ok) throw new Error(`Página não disponível: ${file}`);
+                return response.text();
+            }).then((html) => {
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                if (!doc.querySelector('main') || doc.body?.dataset.page !== ROUTE_FILES[file]) {
+                    throw new Error(`Documento de destino inválido: ${file}`);
+                }
+                return doc;
+            }).catch((error) => {
+                pagePromises.delete(file); // permite tentar novamente quando houver rede
+                throw error;
+            });
+            pagePromises.set(file, loading);
+        }
+        return pagePromises.get(file);
+    }
+
+    // Bancos de dados de cada especialidade são os únicos scripts adicionais
+    // necessários; app.js, Tailwind, Lucide e os componentes permanecem ativos.
+    function loadDataScript(src) {
+        const url = new URL(src, SITE_BASE).href;
+        if (scriptPromises.has(url)) return scriptPromises.get(url);
+        const loading = new Promise((resolve) => {
+            const element = document.createElement('script');
+            element.src = url;
+            element.async = true;
+            element.onload = resolve;
+            element.onerror = () => {
+                console.warn('Banco de dados indisponível:', url);
+                resolve(); // não impede a navegação nem afeta outras especialidades
+            };
+            document.head.appendChild(element);
+        });
+        scriptPromises.set(url, loading);
+        return loading;
+    }
+
+    async function preparePageScripts(doc) {
+        const scripts = [...doc.querySelectorAll('script[src]')]
+            .map((script) => script.getAttribute('src'))
+            .filter((src) => src && new URL(src, SITE_BASE).pathname
+                .startsWith(new URL('banco_de_dados/', SITE_BASE).pathname));
+        // Os protocolos compartilham uma única base global: execução sequencial.
+        for (const src of scripts) await loadDataScript(src);
+    }
+
+    async function navigateDocument(value, { addHistory = true } = {}) {
+        const target = routeOf(value);
+        if (!target) {
+            window.location.assign(value);
+            return;
+        }
+        const sequence = ++navigationVersion;
+        const current = routeOf(location.href);
+        if (pageName() === target.page) {
+            if (addHistory && location.href !== target.url.href) {
+                history.pushState({ page: target.page }, '', target.url.href);
+            }
+            syncRouteFromHash();
+            return;
+        }
+
+        try {
+            const doc = await getRouteDocument(target.file);
+            await preparePageScripts(doc);
+            if (sequence !== navigationVersion) return;
+            const previousMain = document.querySelector('main');
+            const nextMain = doc.querySelector('main');
+            if (!previousMain || !nextMain) throw new Error('Área principal ausente');
+
+            if (addHistory) storedScroll.set(location.pathname, scrollY);
+            const restore = addHistory ? 0 : (storedScroll.get(target.url.pathname) || 0);
+            if (addHistory) history.pushState({ page: target.page }, '', target.url.href);
+            document.body.dataset.page = target.page;
+            document.title = doc.title || document.title;
+            const description = doc.querySelector('meta[name="description"]')?.content;
+            const descriptionMeta = document.querySelector('meta[name="description"]');
+            if (description && descriptionMeta) descriptionMeta.content = description;
+
+            // Não remonta o cabeçalho/rodapé e não recarrega bibliotecas pesadas.
+            previousMain.replaceWith(document.importNode(nextMain, true));
+            if (target.page === 'prescricoes') renderPrescricoes();
+            const fragment = decodeURIComponent(target.url.hash.replace(/^#/, ''));
+            const chosenView = fragment && byId(`view-${fragment}`) ? fragment : target.page;
+            navigateTo(chosenView, { updateHash: false, scroll: false });
+            window.scrollTo({ top: restore, behavior: 'instant' });
+        } catch (error) {
+            console.warn('Navegação rápida indisponível, usando navegação normal:', error);
+            // Sempre há um caminho de recuperação se o download falhar.
+            window.location.assign(target.url.href);
+        }
+    }
+
+    // Captura somente links HTML do próprio Guia Clínico. Não interfere em
+    // arquivos PDF, Google Drive, links externos ou atalhos de acessibilidade.
+    document.addEventListener('click', (event) => {
+        if (event.defaultPrevented || event.button !== 0 ||
+            event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+        const link = event.target.closest?.('a[href]');
+        if (!link || link.hasAttribute('download') ||
+            (link.target && link.target !== '_self')) return;
+        const target = routeOf(link.href);
+        if (!target) return;
+        const current = routeOf(location.href);
+        if (target.page === current?.page) return;
+        event.preventDefault();
+        void navigateDocument(target.url.href);
+    }, true);
+
+    // Prerrecuperação leve: HTMLs de aproximadamente 10–25 KB e seus bancos
+    // JS pequenos. As capas e os livros não são baixados por esta rotina.
+    function warmPages() {
+        if (didWarm) return;
+        didWarm = true;
+        const current = routeOf(location.href)?.file;
+        const names = Object.keys(ROUTE_FILES).filter((file) => file !== current);
+        const documents = names.map((file) => getRouteDocument(file).catch(() => null));
+        void (async () => {
+            for (const pending of documents) {
+                const doc = await pending;
+                if (doc) await preparePageScripts(doc);
+            }
+        })();
+    }
+
     // 2. Navegação entre arquivos .html e seções da página inicial.
     function updateBackButton(viewId) {
         const button = byId('back-btn');
@@ -112,12 +273,12 @@
         if (!localView) {
             // Outras especialidades e prescrições usam páginas próprias.
             if (Object.hasOwn(SPECIALTIES, target) || target === 'prescricoes') {
-                window.location.assign(`./${target}.html`);
+                void navigateDocument(`./${target}.html`);
                 return;
             }
             if (HOME_VIEWS.has(target)) {
                 const hash = target === 'home' ? '' : `#${target}`;
-                window.location.assign(`./index.html${hash}`);
+                void navigateDocument(`./index.html${hash}`);
             }
             return;
         }
@@ -148,6 +309,11 @@
     }
 
     function syncRouteFromHash() {
+        const route = routeOf(location.href);
+        if (route && pageName() !== route.page) {
+            void navigateDocument(location.href, { addHistory: false });
+            return;
+        }
         const fragment = decodeURIComponent(window.location.hash.replace(/^#/, ''));
         const allowed = HOME_VIEWS.has(fragment) || fragment === 'post' ||
             Object.hasOwn(SPECIALTIES, fragment);
@@ -491,6 +657,8 @@
         const visible = document.querySelector('.view-section.active');
         updateBackButton(visible?.id?.replace(/^view-/, '') || page);
         refreshIcons();
+        // O primeiro acesso deixa as próximas páginas preparadas no cache local.
+        window.setTimeout(warmPages, 300);
     }
 
     // Chamadas utilizadas nos atributos onclick/oninput dos HTMLs existentes.
