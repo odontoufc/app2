@@ -174,12 +174,15 @@
                                 <i data-lucide="sun" class="w-5 h-5 hidden dark:block" aria-hidden="true"></i>
                             </button>
 
+                            
                             <button type="button"
                                     id="back-btn"
-                                    class="hidden bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200 text-gray-700 py-1.5 px-3 rounded-lg text-sm font-medium transition-colors items-center gap-1 active:scale-95"
-                                    aria-label="Voltar à página anterior">
-                                <i data-lucide="arrow-left" class="w-4 h-4" aria-hidden="true"></i>
-                                <span class="hidden xs:inline">Voltar</span>
+                                    class="hidden bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-gray-200 text-gray-700 w-10 h-10 p-0 rounded-lg transition-colors items-center justify-center active:scale-95"
+                                    aria-label="Voltar à página anterior"
+                                    title="Voltar">
+                                <i data-lucide="arrow-left"
+                                    class="w-5 h-5"
+                                    aria-hidden="true"></i>
                             </button>
                         </div>
                     </div>
